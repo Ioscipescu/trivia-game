@@ -199,8 +199,5 @@ if __name__ == "__main__":
     if len(sys.argv) == 3:
         host, port = sys.argv[1], int(sys.argv[2])
         start_server(host, port)
-    elif len(sys.argv) == 0:
-        start_server()
     else:
-        print("usage:", sys.argv[0], "<host> <port>")
-        sys.exit(1)
+        start_server()
