@@ -13,6 +13,23 @@ This is a simple game of trivia implemented using Python and sockets.
 * Python
 * Sockets
 
+**Message Protocol:**
+
+Each message contains a header and the content. The header contains the message's byteorder, the message type, the encoding of the message, the checksum (not implemented yet), the length of the message, and the expected response. The content of the message is the actual content getting sent by the server or client. 
+
+The message type can be any of:
+    ANSWER
+    QUESTION
+    RESULT
+    QUIT
+    ERROR
+    NONE
+    HELP
+    STATUS
+    NAME
+    ACKNOWLEDGMENT
+Not all message types are used yet but they are all planned to be used in the future.
+
 **Additional resources:**
 
 * [Link to Python documentation]
