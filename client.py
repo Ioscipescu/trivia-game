@@ -6,10 +6,12 @@ from libmessage import Message
 # Create a lock to manage access to shared resources
 response_lock = threading.Lock()
 previous_response = Message(Message.MessageType.NONE, content="", expected_response=Message.MessageType.NONE)
+username = ""
 
 def receive_messages(client_socket):
     """Thread function to receive messages from the server and update the previous_response."""
     global previous_response
+    global username
     try:
         while True:
             response = client_socket.recv(1024)
@@ -18,6 +20,12 @@ def receive_messages(client_socket):
                 break
             message = Message.deserialize(response)
             
+            if message.header["type"] == Message.MessageType.NAME:
+                with response_lock:
+                    username = message.content
+                print(f"Your name has been set to {username}, to start the game type ready")
+                continue
+
             # Update the previous_response using a lock
             with response_lock:
                 previous_response = message
@@ -29,6 +37,7 @@ def receive_messages(client_socket):
                 print("Sending acknowledgment.")
                 acknowledgment = Message(Message.MessageType.ACKNOWLEDGMENT, content="Acknowledged", expected_response=Message.MessageType.QUESTION)
                 client_socket.send(acknowledgment.serialize())
+            
 
     except Exception as e:
         print(f"Error receiving data: {e}")
@@ -37,11 +46,12 @@ def receive_messages(client_socket):
 
 def start_client(host='127.0.0.1', port=12345):
     global previous_response
+    global username
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((host, port))
 
-    print("Connected to the server. Type 'help' for available commands.")
+    print("Connected to the server. Please send your desired username")
 
     # Start a thread to listen for server messages
     receiver_thread = threading.Thread(target=receive_messages, args=(client_socket,))
@@ -63,10 +73,12 @@ def start_client(host='127.0.0.1', port=12345):
             if message_content.lower() == "exit":
                 break  # Exit loop to close connection and terminate client
 
-            if message_content.lower() == "ready":
+            if username == "":
+                message = Message(Message.MessageType.NAME, content=message_content, expected_response=Message.MessageType.NAME)
+            elif message_content.lower() == "ready":
                 message = Message(Message.MessageType.STATUS, content="ready", expected_response=Message.MessageType.QUESTION)
             else:
-                message = Message(Message.MessageType.ANSWER, content=message_content)
+                message = Message(Message.MessageType.ANSWER, content=message_content, expected_response=Message.MessageType.RESULT)
                 
             client_socket.send(message.serialize())
 

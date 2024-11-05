@@ -19,7 +19,6 @@ class Answers(str, Enum):
     Q2 = "Example answer"
     Q3 = "Example answer"
 
-# Global variables to track connected clients and their states
 connected_clients = []
 client_states = {}
 client_names = {}
@@ -27,7 +26,7 @@ client_answers = {}
 client_points = {}
 client_lock = threading.Lock()
 current_game_state = GameState.WAITING
-questionSent = False
+question_sent = False
 question_number = 1
 
 def log_connected_clients():
@@ -35,146 +34,147 @@ def log_connected_clients():
         print(f"Connected clients: {connected_clients}")
         print(f"Client states: {client_states}")
 
-def check_and_start_game():
+def broadcast_message(msg, exclude_address=None, locked=False):
+    if not locked:
+        with client_lock:
+            for client_socket, addr in connected_clients:
+                if addr != exclude_address:
+                    try:
+                        client_socket.send(msg.serialize())
+                    except Exception as e:
+                        print(f"Error sending message to {addr}: {e}")
+    else: 
+        for client_socket, addr in connected_clients:
+                if addr != exclude_address:
+                    try:
+                        client_socket.send(msg.serialize())
+                    except Exception as e:
+                        print(f"Error sending message to {addr}: {e}")
+
+def start_game_if_ready():
     global current_game_state
     with client_lock:
         ready_clients = [client for client, state in client_states.items() if state == "ready"]
         if len(connected_clients) >= 2 and len(ready_clients) == len(connected_clients):
-            # Broadcast "game start" to all connected clients
-            print("Two or more clients are ready. Sending 'game start' to all clients.")
-            for client_socket, _ in connected_clients:
-                try:
-                    client_socket.send(Message(Message.MessageType.STATUS, "Game start", expected_response=Message.MessageType.ACKNOWLEDGMENT).serialize())
-                except Exception as e:
-                    print(f"Error sending 'game start' to client: {e}")
-            
-            # Only set to ASKING when the game starts
+            broadcast_message(Message(Message.MessageType.STATUS, "Game start", expected_response=Message.MessageType.ACKNOWLEDGMENT), locked=True)
             current_game_state = GameState.ASKING
-            print(f"Game state updated to {current_game_state}")
+            print("Game state updated to ASKING")
 
 def handle_question():
-    global current_game_state
-    global client_answers
-    global questionSent
-    global question_number
+    global question_sent, question_number, current_game_state
     with client_lock:
-        print(f"Game state: {current_game_state}")
-        print(f"Answers received: {len(client_answers)}")
-        print(f"Question sent: {questionSent}")
+        if  question_number > 3:
+            end_game()
+        elif current_game_state == GameState.ASKING and not question_sent:
+            question = Questions[f"Q{question_number}"]
+            broadcast_message(
+                Message(
+                    Message.MessageType.QUESTION,
+                    f"Question {question_number}: {question}",
+                    expected_response=Message.MessageType.ANSWER
+                ), 
+                locked=True
+            )
+            question_sent = True
+            print(f"Sent Question {question_number}")
 
-        # Send the question only if we're in ASKING state and the question hasn't been sent yet
-        if current_game_state == GameState.ASKING and not questionSent:
-            print("Sending question to clients")
-            for client_socket, _ in connected_clients:
-                try:
-                    question = Questions.Q1 if question_number == 1 else Questions.Q2 if question_number == 2 else Questions.Q3
-                    client_socket.send(Message(Message.MessageType.QUESTION, f"Question {question_number}: {question}", expected_response=Message.MessageType.ANSWER).serialize())
-                    questionSent = True
-                except Exception as e:
-                    print(f"Error sending 'question' to client: {e}")
-        
-        # Check if all clients have answered
-        elif current_game_state == GameState.ASKING and len(client_answers) == len(connected_clients):
-            print("All clients have answered")
-            
-            for client_socket, _ in connected_clients:
-                try:
-                    response = "Everyone has answered."
-                    for address, answer in client_answers.items():
-                        if answer == Answers.Q1:  # Compare the answer with the correct one
-                            client_points[address] += 1
-                        print(f"Client {address} answered correctly and has {client_points[address]} points.")
-                        response += f"Client {address} "
-                    if (response == "Everyone has answered."):
-                        response += "No one answered correctly."
-                    response += "have answered correctly. "
-                    response += f"The correct answer was {Answers.Q1} "
-                    response += f"The scores now are: \n"
-                    for address, points in client_points:
-                        response += f"Client {address} has {points} points.\n"
-                    client_socket.send(Message(Message.MessageType.RESULT, response, expected_response=Message.MessageType.ACKNOWLEDGMENT).serialize())
-                    questionSent = True
-                except Exception as e:
-                    print(f"Error sending 'question' to client: {e}")
-            # Reset for next question or round
-            client_answers = {}  # Reset client answers for the next question
-            questionSent = False  # Reset the flag to allow sending the next question
+        elif len(client_answers) == len(connected_clients):  # All clients have answered
+            response = "Everyone has answered. "
+            correct_answer = Answers[f"Q{question_number}"]
+
+            # Award points for correct answers
+            for addr, answer in client_answers.items():
+                if answer == correct_answer:
+                    client_points[addr] += 1
+            response += f"The correct answer was {correct_answer}. Scores: \n"
+            response += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()])
+
+            # Send the results to all clients
+            broadcast_message(
+                Message(
+                    Message.MessageType.RESULT,
+                    response,
+                    expected_response=Message.MessageType.ACKNOWLEDGMENT
+                ),
+                locked=True
+            )
+
+            # Clear answers and prepare for the next question
+            client_answers.clear()
+            question_sent = False
             question_number += 1
 
-            if question_number > 3:
-                print("All questions have been asked. Ending the game.")
-                current_game_state = GameState.WAITING  # Reset the game state to WAITING
-                for address, _ in client_states:
-                    client_states[address] = "not_ready"
-                for client_socket, _ in connected_clients:
-                    try:
-                        client_socket.send(Message(Message.MessageType.STATUS, "To start another game type ready", expected_response=Message.MessageType.STATUS).serialize())
-                    except Exception as e:
-                        print(f"Error sending 'game start' to client: {e}")
-            
+            if question_number > 3:  # Check if all questions have been asked
+                print(f"Preparing to end game")  # End the game if no more questions are left
             else:
-                print(f"Ready for the next question {question_number}")
+                print(f"Preparing to send Question {question_number}...")
+                # Immediately send the next question
+
+def end_game():
+    global current_game_state, question_number
+    current_game_state = GameState.WAITING
+    question_number = 1
+    for addr in client_states:
+        client_states[addr] = "not_ready"
+    broadcast_message(Message(Message.MessageType.STATUS, "Game over. Type 'ready' to start another game."), locked=True)
 
 def handle_client(client_socket, address):
     with client_lock:
         connected_clients.append((client_socket, address))
         client_states[address] = "not_ready"
         client_points[address] = 0
-        for client_socket, addr in connected_clients:
-            if addr != address:
-                try:
-                    client_socket.send(Message(Message.MessageType.STATUS, f"Client {address} just joined the game",expected_response=Message.MessageType.NONE).serialize())
-                except Exception as e:
-                    print(f"Error sending 'game start' to client: {e}")
     log_connected_clients()
 
-    print(f"Connection established with {address}")
     try:
         while True:
             data = client_socket.recv(1024)
             if not data:
                 break
-            
+
             message = Message.deserialize(data)
             print(f"Received from {address}: {message.content}")
 
             if message.header["type"].upper() == Message.MessageType.QUIT:
                 print(f"Connection closed by {address}")
                 break
+
             elif message.header["type"].upper() == Message.MessageType.NAME:
                 with client_lock:
-                    client_names[address] = message.content
-                    print(f"Client {address} set name {client_names[address]}")
+                    name = message.content
+                    if name in client_names.values():
+                        name += f" ({len([n for n in client_names.values() if n == name])})"
+                    client_names[address] = name
+                broadcast_message(Message(Message.MessageType.STATUS, f"{address} has set their username to {name}"), exclude_address=address)
+                client_socket.send(Message(Message.MessageType.NAME, name).serialize())
+
             elif message.header["type"].upper() == Message.MessageType.HELP:
                 response = "Available commands: 'exit', 'help', 'ready'"
                 client_socket.send(Message("response", response).serialize())
+
             elif message.header["type"].upper() == Message.MessageType.STATUS and message.content.lower() == "ready":
                 with client_lock:
                     client_states[address] = "ready"
-                print(f"{address} is now ready.")
-                check_and_start_game()
+                start_game_if_ready()
+
             elif message.header["type"].upper() == Message.MessageType.ANSWER:
                 with client_lock:
                     client_answers[address] = message.content
                 handle_question()
-            elif message.header["type"].upper() == Message.MessageType.ACKNOWLEDGMENT:
+            elif message.header["expected_response"].upper() == Message.MessageType.QUESTION:
                 handle_question()
-            else:
-                response = f"Echo: {message.header['type'].upper()} {message.content}"
-                client_socket.send(Message("response", response).serialize())
+
 
     except Exception as e:
         print(f"Error with {address}: {e}")
+
     finally:
         with client_lock:
             connected_clients.remove((client_socket, address))
             del client_states[address]
-            for client_socket, addr in connected_clients:
-                if addr != address:
-                    try:
-                        client_socket.send(Message(Message.MessageType.STATUS, f"Client {address} just left the game", expected_response=Message.MessageType.NONE).serialize())
-                    except Exception as e:
-                        print(f"Error sending 'client left' to other clients: {e}")
+            del client_points[address]
+            if address in client_names:
+                del client_names[address]
+            broadcast_message(Message(Message.MessageType.STATUS, f"Client {address} has left the game"), exclude_address=address, locked=True)
         log_connected_clients()
         client_socket.close()
 
@@ -187,17 +187,15 @@ def start_server(host='127.0.0.1', port=12345):
     try:
         while True:
             client_socket, address = server_socket.accept()
-            client_thread = threading.Thread(target=handle_client, args=(client_socket, address))
-            client_thread.start()
-        
+            threading.Thread(target=handle_client, args=(client_socket, address)).start()
+
     except KeyboardInterrupt:
-        print("Caught keyboard interrupt, exiting")
+        print("Server shutting down.")
     finally:
         server_socket.close()
 
 if __name__ == "__main__":
     if len(sys.argv) == 3:
-        host, port = sys.argv[1], int(sys.argv[2])
-        start_server(host, port)
+        start_server(sys.argv[1], int(sys.argv[2]))
     else:
         start_server()
