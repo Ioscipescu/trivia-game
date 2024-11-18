@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+import argparse
 from enum import Enum
 import socket
 import sys
@@ -10,14 +13,27 @@ class GameState(str, Enum):
     ANSWERING = "ANSWERING"
 
 class Questions(str, Enum):
-    Q1 = "Example question"
-    Q2 = "Example question"
-    Q3 = "Example question"
-
+    Q1 = "What are the first five digits of pi?"
+    Q2 = "How many planets are in the solar system? (Answer in the form of a number)"
+    Q3 = "In a website browser address bar, what does “www” stand for?"
+    Q4 = "Chrome, Safari, Firefox and Explorer are different types of what?"
+    Q5 = "What was the first satellite to enter space called?"
+    Q6 = "What does the acronym OOP stand for?"
+    Q7 = "In what year did the first AWS (Amazon Web Services) service launch to the public?"
+    Q8 = "Which 3-letter server scripting language is used to code dynamic web pages?"
+    Q9 = "What does HTML stand for?"
+    Q10 = "What does SQL stand for?"
 class Answers(str, Enum):
-    Q1 = "Example answer"
-    Q2 = "Example answer"
-    Q3 = "Example answer"
+    Q1 = "3.1415"
+    Q2 = "8"
+    Q3 = "World Wide Web"
+    Q4 = "Web browser"
+    Q5 = "Sputnik"
+    Q6 = "Object Oriented Programming"
+    Q7 = "2004"
+    Q8 = "PHP"
+    Q9 = "Hypertext Markup Language"
+    Q10 = "Structured Query Language"
 
 connected_clients = []
 client_states = {}
@@ -28,6 +44,16 @@ client_lock = threading.Lock()
 current_game_state = GameState.WAITING
 question_sent = False
 question_number = 1
+
+def names_to_sentence(names):
+    if len(names) == 0:
+        return ""
+    elif len(names) == 1:
+        return names[0]
+    elif len(names) == 2:
+        return f"{names[0]} and {names[1]} both"
+    else:
+        return ", ".join(names[:-1]) + ", and " + names[-1] + "all"
 
 def log_connected_clients():
     with client_lock:
@@ -63,14 +89,14 @@ def start_game_if_ready():
 def handle_question():
     global question_sent, question_number, current_game_state
     with client_lock:
-        if  question_number > 3:
+        if  question_number > 10:
             end_game()
         elif current_game_state == GameState.ASKING and not question_sent:
             question = Questions[f"Q{question_number}"]
             broadcast_message(
                 Message(
                     Message.MessageType.QUESTION,
-                    f"Question {question_number}: {question}",
+                    f"Question {question_number}: {question.value}",
                     expected_response=Message.MessageType.ANSWER
                 ), 
                 locked=True
@@ -84,9 +110,9 @@ def handle_question():
 
             # Award points for correct answers
             for addr, answer in client_answers.items():
-                if answer == correct_answer:
+                if answer.upper() == correct_answer.value.upper():
                     client_points[addr] += 1
-            response += f"The correct answer was {correct_answer}. Scores: \n"
+            response += f"The correct answer was {correct_answer.value}. Scores: \n"
             response += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()])
 
             # Send the results to all clients
@@ -104,7 +130,7 @@ def handle_question():
             question_sent = False
             question_number += 1
 
-            if question_number > 3:  # Check if all questions have been asked
+            if question_number > 10:  # Check if all questions have been asked
                 print(f"Preparing to end game")  # End the game if no more questions are left
             else:
                 print(f"Preparing to send Question {question_number}...")
@@ -116,7 +142,21 @@ def end_game():
     question_number = 1
     for addr in client_states:
         client_states[addr] = "not_ready"
-    broadcast_message(Message(Message.MessageType.STATUS, "Game over. Type 'ready' to start another game."), locked=True)
+
+    max_points = max(client_points.values())
+
+    winner_names = []
+
+    for addr, points in client_points.items():
+        if points == max_points:
+            winner_names.append(client_names[addr])
+
+    results = f"{names_to_sentence(winner_names)} had the highest score with {max(client_points.values())} points and won the game! \n"
+    results += "The final scores were: \n"
+    results += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()])
+    results += "\nGame over. Type 'ready' to start another game."
+
+    broadcast_message(Message(Message.MessageType.STATUS, results), locked=True)
 
 def handle_client(client_socket, address):
     with client_lock:
@@ -178,7 +218,7 @@ def handle_client(client_socket, address):
         log_connected_clients()
         client_socket.close()
 
-def start_server(host='127.0.0.1', port=12345):
+def start_server(host='0.0.0.0', port=12345):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((host, port))
     server_socket.listen(5)
@@ -195,7 +235,10 @@ def start_server(host='127.0.0.1', port=12345):
         server_socket.close()
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        start_server(sys.argv[1], int(sys.argv[2]))
-    else:
-        start_server()
+    parser = argparse.ArgumentParser(description="Start the server.")
+    
+    parser.add_argument("-p", "--port", type=int, required=True, help="Port to bind the server to")
+    
+    args = parser.parse_args()
+    
+    start_server(port=args.port)

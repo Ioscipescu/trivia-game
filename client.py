@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+import argparse
 import socket
 import sys
 import threading
@@ -34,7 +37,7 @@ def receive_messages(client_socket):
             # print(message.header["expected_response"])
             # Check if the message is a "game start" message and send acknowledgment
             if message.header["expected_response"] == Message.MessageType.ACKNOWLEDGMENT:
-                print("Sending acknowledgment.")
+                # print("Sending acknowledgment.")
                 acknowledgment = Message(Message.MessageType.ACKNOWLEDGMENT, content="Acknowledged", expected_response=Message.MessageType.QUESTION)
                 client_socket.send(acknowledgment.serialize())
             
@@ -89,8 +92,9 @@ def start_client(host='127.0.0.1', port=12345):
         print("Connection closed.")
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
-        host, port = sys.argv[1], int(sys.argv[2])
-        start_client(host, port)
-    else:
-        start_client()
+    parser = argparse.ArgumentParser(description="Start the client and connect to the server.")
+    parser.add_argument("-i", "--ip", type=str, required=True, help="IP or DNS of the server")
+    parser.add_argument("-p", "--port", type=int, required=True, help="Port to connect to")
+    args = parser.parse_args()
+    
+    start_client(args.ip, args.port)
