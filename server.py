@@ -53,7 +53,7 @@ def names_to_sentence(names):
     elif len(names) == 2:
         return f"{names[0]} and {names[1]} both"
     else:
-        return ", ".join(names[:-1]) + ", and " + names[-1] + "all"
+        return ", ".join(names[:-1]) + ", and " + names[-1] + " all"
 
 def log_connected_clients():
     with client_lock:

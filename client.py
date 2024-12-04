@@ -94,6 +94,7 @@ def start_client(host='127.0.0.1', port=12345):
         print("Caught keyboard interrupt, exiting")
     finally:
         client_socket.close()
+        sys.exit(0)
         print("Connection closed.")
 
 if __name__ == "__main__":
