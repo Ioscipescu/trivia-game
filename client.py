@@ -34,8 +34,7 @@ def receive_messages(client_socket):
             with response_lock:
                 previous_response = message
             
-            print(f"\nServer response: {message.content}")
-            # print(message.header["expected_response"])
+            print(f"{message.content}")
             # Check if the message is a "game start" message and send acknowledgment
             if message.header["expected_response"] == Message.MessageType.ACKNOWLEDGMENT:
                 # print("Sending acknowledgment.")
@@ -72,10 +71,6 @@ def start_client(host='127.0.0.1', port=12345):
             with response_lock:
                 expected_response = previous_response.header["expected_response"]
             
-            # Check if the server expects an answer
-            # if expected_response == Message.MessageType.ANSWER:
-            #     message_content = input("Enter your answer: ")
-            # else:
             message_content = input() #"Enter message: "
 
             if message_content.lower() == "exit":

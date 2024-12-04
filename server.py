@@ -46,6 +46,7 @@ question_sent = False
 question_number = 1
 
 def names_to_sentence(names):
+    """Formats the list of names to be grammatically correct using an oxford comma"""
     if len(names) == 0:
         return ""
     elif len(names) == 1:
@@ -61,6 +62,7 @@ def log_connected_clients():
         print(f"Client states: {client_states}")
 
 def broadcast_message(msg, exclude_address=None, locked=False):
+    """Used to broadcast a message to all connected clients, has logic for if it is already in a locked state or not"""
     if not locked:
         with client_lock:
             for client_socket, addr in connected_clients:
@@ -78,19 +80,24 @@ def broadcast_message(msg, exclude_address=None, locked=False):
                         print(f"Error sending message to {addr}: {e}")
 
 def start_game_if_ready():
+    """Logic to control the start of the actual game, makes sure there are more than two clients and that they are all ready. It then updates the game state so the questions can be handled correctly"""
     global current_game_state
     with client_lock:
         ready_clients = [client for client, state in client_states.items() if state == "ready"]
         if len(connected_clients) >= 2 and len(ready_clients) == len(connected_clients):
-            broadcast_message(Message(Message.MessageType.STATUS, "Game start", expected_response=Message.MessageType.ACKNOWLEDGMENT), locked=True)
+            content = "Game start\nConnected Players:\n"
+            content += "\n".join([f"{name}" for addr, name in client_names.items()]) 
+            broadcast_message(Message(Message.MessageType.STATUS, content, expected_response=Message.MessageType.ACKNOWLEDGMENT), locked=True)
             current_game_state = GameState.ASKING
             print("Game state updated to ASKING")
 
 def handle_question():
+    """Handles how the questions work, both asking and checking for correctness"""
     global question_sent, question_number, current_game_state
     with client_lock:
         if  question_number > 10:
             end_game()
+        # If a question has not been sent and the current state of the game is asking broadcasts the current question number to all clients
         elif current_game_state == GameState.ASKING and not question_sent:
             question = Questions[f"Q{question_number}"]
             broadcast_message(
@@ -105,15 +112,15 @@ def handle_question():
             print(f"Sent Question {question_number}")
 
         elif len(client_answers) == len(connected_clients):  # All clients have answered
-            response = "Everyone has answered. "
+            response = "Everyone has answered.\n"
             correct_answer = Answers[f"Q{question_number}"]
 
             # Award points for correct answers
             for addr, answer in client_answers.items():
                 if answer.upper() == correct_answer.value.upper():
                     client_points[addr] += 1
-            response += f"The correct answer was {correct_answer.value}. Scores: \n"
-            response += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()])
+            response += f"The correct answer was {correct_answer.value}. \nScores: \n"
+            response += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()]) # Lists the scores for all clients
 
             # Send the results to all clients
             broadcast_message(
@@ -140,6 +147,7 @@ def end_game():
     global current_game_state, question_number
     current_game_state = GameState.WAITING
     question_number = 1
+    # Sets all clients to be not ready so that another game can be triggered when they are all ready
     for addr in client_states:
         client_states[addr] = "not_ready"
 
@@ -147,10 +155,12 @@ def end_game():
 
     winner_names = []
 
+    # Every client with the max points is added to a list of winners
     for addr, points in client_points.items():
         if points == max_points:
             winner_names.append(client_names[addr])
 
+    # The list of winners is formatted and the result message is written
     results = f"{names_to_sentence(winner_names)} had the highest score with {max(client_points.values())} points and won the game! \n"
     results += "The final scores were: \n"
     results += "\n".join([f"{client_names[addr]}: {points}" for addr, points in client_points.items()])
@@ -159,6 +169,7 @@ def end_game():
     broadcast_message(Message(Message.MessageType.STATUS, results), locked=True)
 
 def handle_client(client_socket, address):
+    # Adds new client to list of connected clients, has to lock for thread safety
     with client_lock:
         connected_clients.append((client_socket, address))
         client_states[address] = "not_ready"
@@ -174,15 +185,17 @@ def handle_client(client_socket, address):
             message = Message.deserialize(data)
             print(f"Received from {address}: {message.content}")
 
+            # Handles a client leaving
             if message.header["type"].upper() == Message.MessageType.QUIT:
                 print(f"Connection closed by {address}")
                 break
 
+            # Handles changing a client's name
             elif message.header["type"].upper() == Message.MessageType.NAME:
                 with client_lock:
                     name = message.content
                     if name in client_names.values():
-                        name += f" ({len([n for n in client_names.values() if n == name])})"
+                        name += f" ({len([n for n in client_names.values() if n == name])})" # Makes sure each username is unique
                     client_names[address] = name
                 broadcast_message(Message(Message.MessageType.STATUS, f"{address} has set their username to {name}"), exclude_address=address)
                 client_socket.send(Message(Message.MessageType.NAME, name).serialize())
@@ -209,9 +222,12 @@ def handle_client(client_socket, address):
 
     finally:
         with client_lock:
+            # Handles removing clients from the game 
             connected_clients.remove((client_socket, address))
             del client_states[address]
             del client_points[address]
+            if address in client_answers:
+                del client_answers[address]
             if address in client_names:
                 del client_names[address]
             broadcast_message(Message(Message.MessageType.STATUS, f"Client {address} has left the game"), exclude_address=address, locked=True)
@@ -227,6 +243,7 @@ def start_server(host='0.0.0.0', port=12345):
     try:
         while True:
             client_socket, address = server_socket.accept()
+            # Gives each client its own thread, requires that locks be used to access global variables 
             threading.Thread(target=handle_client, args=(client_socket, address)).start()
 
     except KeyboardInterrupt:
