@@ -3,6 +3,7 @@
 import argparse
 import socket
 import sys
+import os
 import threading
 from libmessage import Message
 
@@ -43,7 +44,7 @@ def receive_messages(client_socket):
             
 
     except Exception as e:
-        print(f"Error receiving data: {e}")
+        print(f"Error receiving data data from the server, closing connection")
     finally:
         client_socket.close()
 
@@ -52,7 +53,11 @@ def start_client(host='127.0.0.1', port=12345):
     global username
 
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((host, port))
+    try:
+        client_socket.connect((host, port))
+    except ConnectionRefusedError:
+        print("Connection Refused by server, make sure that the IP and Port are correct and try again")
+        sys.exit(os.EX_NOHOST) 
 
     print("Connected to the server. Please send your desired username")
 
