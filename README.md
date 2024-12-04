@@ -38,8 +38,3 @@ To run the test scripts on either client or server run ```python3 -m unittest te
 **Potential Security Issues:**
 
 In this codebase has no input validation in the serialize and deserialize methods. This could potentially allow some sort of arbitrary code execution by a malicious actor. A fix for this could be using a more secure serialization method than the current json one. There is also no authentication or authorization within this codebase, allowing any user to join. This could be mitigated with an actual authentication method and allowed users. Additionally, this code is vulnerable to DoS and DDoS attacks, as there is no limit on connections and messages sent. Preventing too many clients from joining and limiting how often messages can be received could mitigate this. Finally, there is the potential for my threading usage to cause race conditions and incorrect updating of global variables in ways that I did not foresee, potentially causing any number of issues.
-
-**Additional resources:**
-
-* [Link to Python documentation]
-* [Link to sockets tutorial]
